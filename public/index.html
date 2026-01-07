@@ -889,11 +889,10 @@
           // Show success message and disable button permanently
           document.getElementById('downloadStatus').innerHTML = `
             <div class="message message-success">
-              Download started! If it doesn't begin automatically, 
-              <a href="${data.downloadUrl}" target="_blank">click here</a>.
+              ✅ Download started successfully!
             </div>
             <div class="message message-warning" style="margin-top: 10px;">
-              Note: This was a one-time download. The link has been disabled.
+              ⚠️ This was a one-time download. You cannot download again.
             </div>
           `;
         } else {
