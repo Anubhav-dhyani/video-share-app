@@ -1,0 +1,961 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Video Share - Secure One-Time Downloads</title>
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+      background: #f5f5f5;
+      min-height: 100vh;
+      color: #333;
+    }
+
+    .container {
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+
+    header {
+      background: #1a1a2e;
+      color: white;
+      padding: 15px 20px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    header h1 {
+      font-size: 1.5rem;
+    }
+
+    #logoutBtn {
+      background: #e74c3c;
+      color: white;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: none;
+    }
+
+    #logoutBtn:hover {
+      background: #c0392b;
+    }
+
+    /* Login Form */
+    .login-section {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      max-width: 400px;
+      margin: 50px auto;
+    }
+
+    .login-section h2 {
+      margin-bottom: 20px;
+      text-align: center;
+    }
+
+    .form-group {
+      margin-bottom: 15px;
+    }
+
+    .form-group label {
+      display: block;
+      margin-bottom: 5px;
+      font-weight: 500;
+    }
+
+    .form-group input {
+      width: 100%;
+      padding: 10px;
+      border: 1px solid #ddd;
+      border-radius: 4px;
+      font-size: 16px;
+    }
+
+    .btn {
+      background: #3498db;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 4px;
+      cursor: pointer;
+      font-size: 16px;
+      width: 100%;
+    }
+
+    .btn:hover {
+      background: #2980b9;
+    }
+
+    .btn:disabled {
+      background: #bdc3c7;
+      cursor: not-allowed;
+    }
+
+    .btn-danger {
+      background: #e74c3c;
+    }
+
+    .btn-danger:hover {
+      background: #c0392b;
+    }
+
+    .btn-success {
+      background: #27ae60;
+    }
+
+    .btn-success:hover {
+      background: #219a52;
+    }
+
+    .btn-warning {
+      background: #f39c12;
+    }
+
+    .btn-warning:hover {
+      background: #d68910;
+    }
+
+    .btn-small {
+      padding: 6px 12px;
+      font-size: 14px;
+      width: auto;
+    }
+
+    /* Admin Panel */
+    .admin-section {
+      display: none;
+    }
+
+    .panel {
+      background: white;
+      padding: 20px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      margin-bottom: 20px;
+    }
+
+    .panel h2 {
+      margin-bottom: 15px;
+      padding-bottom: 10px;
+      border-bottom: 2px solid #eee;
+    }
+
+    /* Upload Section */
+    .upload-area {
+      border: 2px dashed #ddd;
+      padding: 40px;
+      text-align: center;
+      border-radius: 8px;
+      margin-bottom: 15px;
+      transition: border-color 0.3s;
+    }
+
+    .upload-area:hover {
+      border-color: #3498db;
+    }
+
+    .upload-area.dragover {
+      border-color: #27ae60;
+      background: #f0fff4;
+    }
+
+    #fileInput {
+      display: none;
+    }
+
+    .upload-info {
+      margin-top: 15px;
+      padding: 15px;
+      background: #f8f9fa;
+      border-radius: 4px;
+      display: none;
+    }
+
+    .progress-bar {
+      height: 20px;
+      background: #eee;
+      border-radius: 10px;
+      overflow: hidden;
+      margin-top: 10px;
+      display: none;
+    }
+
+    .progress-bar-fill {
+      height: 100%;
+      background: #3498db;
+      width: 0%;
+      transition: width 0.3s;
+    }
+
+    /* Video List */
+    .video-list {
+      margin-top: 15px;
+    }
+
+    .video-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 15px;
+      border: 1px solid #eee;
+      border-radius: 4px;
+      margin-bottom: 10px;
+      background: #fafafa;
+    }
+
+    .video-info {
+      flex: 1;
+    }
+
+    .video-name {
+      font-weight: 600;
+      margin-bottom: 5px;
+    }
+
+    .video-meta {
+      font-size: 14px;
+      color: #666;
+    }
+
+    .video-status {
+      display: inline-block;
+      padding: 4px 8px;
+      border-radius: 4px;
+      font-size: 12px;
+      font-weight: 500;
+      margin-left: 10px;
+    }
+
+    .status-available {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .status-downloaded {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .status-disabled {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .video-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+
+    .copy-link {
+      cursor: pointer;
+      color: #3498db;
+      text-decoration: underline;
+      font-size: 13px;
+    }
+
+    /* Download Section (Public) */
+    .download-section {
+      display: none;
+    }
+
+    .download-card {
+      background: white;
+      padding: 40px;
+      border-radius: 8px;
+      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      max-width: 500px;
+      margin: 50px auto;
+      text-align: center;
+    }
+
+    .download-card h2 {
+      margin-bottom: 20px;
+    }
+
+    .file-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+
+    .file-details {
+      margin-bottom: 30px;
+    }
+
+    .file-name {
+      font-size: 1.2rem;
+      font-weight: 600;
+      margin-bottom: 10px;
+      word-break: break-all;
+    }
+
+    .file-size {
+      color: #666;
+    }
+
+    /* Messages */
+    .message {
+      padding: 12px 15px;
+      border-radius: 4px;
+      margin-bottom: 15px;
+    }
+
+    .message-success {
+      background: #d4edda;
+      color: #155724;
+    }
+
+    .message-error {
+      background: #f8d7da;
+      color: #721c24;
+    }
+
+    .message-warning {
+      background: #fff3cd;
+      color: #856404;
+    }
+
+    .message-info {
+      background: #d1ecf1;
+      color: #0c5460;
+    }
+
+    /* Loading */
+    .loading {
+      display: inline-block;
+      width: 20px;
+      height: 20px;
+      border: 2px solid #fff;
+      border-radius: 50%;
+      border-top-color: transparent;
+      animation: spin 1s linear infinite;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .hidden {
+      display: none !important;
+    }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      .video-item {
+        flex-direction: column;
+        align-items: flex-start;
+      }
+      
+      .video-actions {
+        margin-top: 10px;
+        width: 100%;
+      }
+      
+      .video-actions .btn-small {
+        flex: 1;
+      }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>🎬 Video Share</h1>
+    <button id="logoutBtn" onclick="logout()">Logout</button>
+  </header>
+
+  <div class="container">
+    <!-- Message Container -->
+    <div id="messageContainer"></div>
+
+    <!-- Login Section -->
+    <section id="loginSection" class="login-section">
+      <h2>Admin Login</h2>
+      <form id="loginForm">
+        <div class="form-group">
+          <label for="email">Email</label>
+          <input type="email" id="email" required>
+        </div>
+        <div class="form-group">
+          <label for="password">Password</label>
+          <input type="password" id="password" required>
+        </div>
+        <button type="submit" class="btn">Login</button>
+      </form>
+    </section>
+
+    <!-- Admin Section -->
+    <section id="adminSection" class="admin-section">
+      <!-- Upload Panel -->
+      <div class="panel">
+        <h2>📤 Upload Video</h2>
+        <div class="upload-area" id="uploadArea">
+          <p>Drag & drop a video file here or click to browse</p>
+          <p style="color: #888; font-size: 14px; margin-top: 10px;">Maximum file size: 20GB</p>
+          <input type="file" id="fileInput" accept="video/*">
+        </div>
+        <div class="upload-info" id="uploadInfo">
+          <p><strong>Selected:</strong> <span id="selectedFileName"></span></p>
+          <p><strong>Size:</strong> <span id="selectedFileSize"></span></p>
+          <button class="btn btn-success" id="uploadBtn" onclick="startUpload()">Upload Video</button>
+        </div>
+        <div class="progress-bar" id="progressBar">
+          <div class="progress-bar-fill" id="progressFill"></div>
+        </div>
+      </div>
+
+      <!-- Videos Panel -->
+      <div class="panel">
+        <h2>📋 Uploaded Videos</h2>
+        <button class="btn btn-small" onclick="loadVideos()" style="margin-bottom: 15px;">Refresh List</button>
+        <div class="video-list" id="videoList">
+          <p style="color: #888;">Loading videos...</p>
+        </div>
+      </div>
+    </section>
+
+    <!-- Download Section (Public) -->
+    <section id="downloadSection" class="download-section">
+      <div class="download-card">
+        <div class="file-icon">🎥</div>
+        <h2>Video Download</h2>
+        <div class="file-details">
+          <p class="file-name" id="downloadFileName">Loading...</p>
+          <p class="file-size" id="downloadFileSize"></p>
+        </div>
+        <div id="downloadStatus">
+          <button class="btn btn-success" id="downloadBtn" onclick="downloadVideo()">
+            Download Now
+          </button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // API Base URL
+    const API_BASE = '/api';
+    
+    // State
+    let authToken = localStorage.getItem('authToken');
+    let selectedFile = null;
+    let currentVideoId = null;
+
+    // Initialize on page load
+    document.addEventListener('DOMContentLoaded', () => {
+      // Check if this is a download link
+      const path = window.location.pathname;
+      const downloadMatch = path.match(/^\/download\/([a-f0-9-]+)$/i);
+      
+      if (downloadMatch) {
+        currentVideoId = downloadMatch[1];
+        showDownloadPage();
+      } else if (authToken) {
+        verifyToken();
+      } else {
+        showLoginPage();
+      }
+      
+      setupUploadEvents();
+    });
+
+    // ========== Auth Functions ==========
+    
+    document.getElementById('loginForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const email = document.getElementById('email').value;
+      const password = document.getElementById('password').value;
+      
+      try {
+        const response = await fetch(`${API_BASE}/auth/login`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          authToken = data.token;
+          localStorage.setItem('authToken', authToken);
+          showMessage('Login successful!', 'success');
+          showAdminPanel();
+        } else {
+          showMessage(data.error || 'Login failed', 'error');
+        }
+      } catch (error) {
+        showMessage('Network error. Please try again.', 'error');
+      }
+    });
+
+    async function verifyToken() {
+      try {
+        const response = await fetch(`${API_BASE}/auth/verify`, {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+          showAdminPanel();
+        } else {
+          logout();
+        }
+      } catch (error) {
+        logout();
+      }
+    }
+
+    function logout() {
+      authToken = null;
+      localStorage.removeItem('authToken');
+      showLoginPage();
+    }
+
+    // ========== Page Navigation ==========
+    
+    function showLoginPage() {
+      document.getElementById('loginSection').style.display = 'block';
+      document.getElementById('adminSection').style.display = 'none';
+      document.getElementById('downloadSection').style.display = 'none';
+      document.getElementById('logoutBtn').style.display = 'none';
+    }
+
+    function showAdminPanel() {
+      document.getElementById('loginSection').style.display = 'none';
+      document.getElementById('adminSection').style.display = 'block';
+      document.getElementById('downloadSection').style.display = 'none';
+      document.getElementById('logoutBtn').style.display = 'block';
+      loadVideos();
+    }
+
+    async function showDownloadPage() {
+      document.getElementById('loginSection').style.display = 'none';
+      document.getElementById('adminSection').style.display = 'none';
+      document.getElementById('downloadSection').style.display = 'block';
+      document.getElementById('logoutBtn').style.display = 'none';
+      
+      try {
+        const response = await fetch(`${API_BASE}/videos/${currentVideoId}`);
+        const data = await response.json();
+        
+        if (response.ok) {
+          document.getElementById('downloadFileName').textContent = data.fileName;
+          document.getElementById('downloadFileSize').textContent = formatFileSize(data.fileSize);
+          
+          const downloadBtn = document.getElementById('downloadBtn');
+          const downloadStatus = document.getElementById('downloadStatus');
+          
+          if (!data.isEnabled) {
+            if (data.isDownloaded) {
+              downloadStatus.innerHTML = `
+                <div class="message message-warning">
+                  This video has already been downloaded. Contact the admin if you need to download again.
+                </div>
+              `;
+            } else {
+              downloadStatus.innerHTML = `
+                <div class="message message-error">
+                  Download is currently disabled for this video.
+                </div>
+              `;
+            }
+          }
+        } else {
+          document.getElementById('downloadFileName').textContent = 'Video not found';
+          document.getElementById('downloadStatus').innerHTML = `
+            <div class="message message-error">${data.error}</div>
+          `;
+        }
+      } catch (error) {
+        document.getElementById('downloadFileName').textContent = 'Error loading video';
+        document.getElementById('downloadStatus').innerHTML = `
+          <div class="message message-error">Failed to load video information.</div>
+        `;
+      }
+    }
+
+    // ========== Upload Functions ==========
+    
+    function setupUploadEvents() {
+      const uploadArea = document.getElementById('uploadArea');
+      const fileInput = document.getElementById('fileInput');
+      
+      uploadArea.addEventListener('click', () => fileInput.click());
+      
+      uploadArea.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        uploadArea.classList.add('dragover');
+      });
+      
+      uploadArea.addEventListener('dragleave', () => {
+        uploadArea.classList.remove('dragover');
+      });
+      
+      uploadArea.addEventListener('drop', (e) => {
+        e.preventDefault();
+        uploadArea.classList.remove('dragover');
+        const files = e.dataTransfer.files;
+        if (files.length > 0) {
+          handleFileSelect(files[0]);
+        }
+      });
+      
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files.length > 0) {
+          handleFileSelect(e.target.files[0]);
+        }
+      });
+    }
+
+    function handleFileSelect(file) {
+      // Check if it's a video file
+      if (!file.type.startsWith('video/')) {
+        showMessage('Please select a video file', 'error');
+        return;
+      }
+      
+      // Check file size (20GB max)
+      const maxSize = 20 * 1024 * 1024 * 1024;
+      if (file.size > maxSize) {
+        showMessage('File size exceeds 20GB limit', 'error');
+        return;
+      }
+      
+      selectedFile = file;
+      document.getElementById('selectedFileName').textContent = file.name;
+      document.getElementById('selectedFileSize').textContent = formatFileSize(file.size);
+      document.getElementById('uploadInfo').style.display = 'block';
+    }
+
+    async function startUpload() {
+      if (!selectedFile) {
+        showMessage('Please select a file first', 'error');
+        return;
+      }
+      
+      const uploadBtn = document.getElementById('uploadBtn');
+      uploadBtn.disabled = true;
+      uploadBtn.innerHTML = '<span class="loading"></span> Uploading...';
+      
+      document.getElementById('progressBar').style.display = 'block';
+      
+      try {
+        // Step 1: Get pre-signed upload URL
+        const urlResponse = await fetch(`${API_BASE}/videos/upload-url`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({
+            fileName: selectedFile.name,
+            contentType: selectedFile.type,
+            fileSize: selectedFile.size
+          })
+        });
+        
+        if (!urlResponse.ok) {
+          const error = await urlResponse.json();
+          throw new Error(error.error || 'Failed to get upload URL');
+        }
+        
+        const { uploadUrl, videoId } = await urlResponse.json();
+        
+        // Step 2: Upload file directly to S3
+        await uploadToS3(uploadUrl, selectedFile);
+        
+        // Step 3: Confirm upload
+        const confirmResponse = await fetch(`${API_BASE}/videos/${videoId}/confirm-upload`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (!confirmResponse.ok) {
+          throw new Error('Failed to confirm upload');
+        }
+        
+        showMessage('Video uploaded successfully!', 'success');
+        
+        // Show the share link
+        const shareLink = `${window.location.origin}/download/${videoId}`;
+        showMessage(`Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'info');
+        
+        // Reset upload form
+        selectedFile = null;
+        document.getElementById('uploadInfo').style.display = 'none';
+        document.getElementById('progressBar').style.display = 'none';
+        document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('fileInput').value = '';
+        
+        // Reload video list
+        loadVideos();
+        
+      } catch (error) {
+        showMessage(error.message, 'error');
+      } finally {
+        uploadBtn.disabled = false;
+        uploadBtn.textContent = 'Upload Video';
+      }
+    }
+
+    async function uploadToS3(uploadUrl, file) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            const percent = (e.loaded / e.total) * 100;
+            document.getElementById('progressFill').style.width = `${percent}%`;
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            resolve();
+          } else {
+            reject(new Error('Upload failed'));
+          }
+        });
+        
+        xhr.addEventListener('error', () => reject(new Error('Upload failed')));
+        
+        xhr.open('PUT', uploadUrl);
+        xhr.setRequestHeader('Content-Type', file.type);
+        xhr.send(file);
+      });
+    }
+
+    // ========== Video Management ==========
+    
+    async function loadVideos() {
+      const videoList = document.getElementById('videoList');
+      videoList.innerHTML = '<p style="color: #888;">Loading videos...</p>';
+      
+      try {
+        const response = await fetch(`${API_BASE}/videos`, {
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (!response.ok) {
+          throw new Error('Failed to load videos');
+        }
+        
+        const { videos } = await response.json();
+        
+        if (videos.length === 0) {
+          videoList.innerHTML = '<p style="color: #888;">No videos uploaded yet.</p>';
+          return;
+        }
+        
+        videoList.innerHTML = videos.map(video => `
+          <div class="video-item">
+            <div class="video-info">
+              <div class="video-name">
+                ${escapeHtml(video.file_name)}
+                <span class="video-status status-${video.status}">${video.status.toUpperCase()}</span>
+              </div>
+              <div class="video-meta">
+                Size: ${formatFileSize(video.file_size)} | 
+                Created: ${formatDate(video.created_at)} | 
+                Expires: ${formatDate(video.expires_at)}
+              </div>
+              <div class="copy-link" onclick="copyLink('${video.video_id}')">
+                📋 Copy share link
+              </div>
+            </div>
+            <div class="video-actions">
+              ${video.is_enabled 
+                ? `<button class="btn btn-small btn-warning" onclick="toggleVideo('${video.video_id}', false)">Disable</button>`
+                : `<button class="btn btn-small btn-success" onclick="toggleVideo('${video.video_id}', true)">Enable</button>`
+              }
+              <button class="btn btn-small btn-danger" onclick="deleteVideo('${video.video_id}')">Delete</button>
+            </div>
+          </div>
+        `).join('');
+        
+      } catch (error) {
+        videoList.innerHTML = '<p style="color: #e74c3c;">Failed to load videos.</p>';
+      }
+    }
+
+    async function toggleVideo(videoId, enabled) {
+      try {
+        const response = await fetch(`${API_BASE}/videos/${videoId}/toggle`, {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${authToken}`
+          },
+          body: JSON.stringify({ enabled })
+        });
+        
+        if (response.ok) {
+          showMessage(`Download ${enabled ? 'enabled' : 'disabled'}`, 'success');
+          loadVideos();
+        } else {
+          const error = await response.json();
+          showMessage(error.error || 'Failed to toggle video', 'error');
+        }
+      } catch (error) {
+        showMessage('Network error', 'error');
+      }
+    }
+
+    async function deleteVideo(videoId) {
+      if (!confirm('Are you sure you want to delete this video? This cannot be undone.')) {
+        return;
+      }
+      
+      try {
+        const response = await fetch(`${API_BASE}/videos/${videoId}`, {
+          method: 'DELETE',
+          headers: { 'Authorization': `Bearer ${authToken}` }
+        });
+        
+        if (response.ok) {
+          showMessage('Video deleted successfully', 'success');
+          loadVideos();
+        } else {
+          const error = await response.json();
+          showMessage(error.error || 'Failed to delete video', 'error');
+        }
+      } catch (error) {
+        showMessage('Network error', 'error');
+      }
+    }
+
+    function copyLink(videoId) {
+      const link = `${window.location.origin}/download/${videoId}`;
+      
+      // Try modern clipboard API first
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        navigator.clipboard.writeText(link).then(() => {
+          showMessage('✅ Link copied to clipboard!', 'success');
+        }).catch(() => {
+          fallbackCopy(link);
+        });
+      } else {
+        fallbackCopy(link);
+      }
+    }
+    
+    function fallbackCopy(text) {
+      // Fallback for older browsers or non-HTTPS
+      const textArea = document.createElement('textarea');
+      textArea.value = text;
+      textArea.style.position = 'fixed';
+      textArea.style.left = '-999999px';
+      document.body.appendChild(textArea);
+      textArea.select();
+      try {
+        document.execCommand('copy');
+        showMessage('✅ Link copied to clipboard!', 'success');
+      } catch (err) {
+        // Show link if copy fails
+        prompt('Copy this link:', text);
+      }
+      document.body.removeChild(textArea);
+    }
+
+    // ========== Download Function ==========
+    
+    async function downloadVideo() {
+      const downloadBtn = document.getElementById('downloadBtn');
+      downloadBtn.disabled = true;
+      downloadBtn.innerHTML = '<span class="loading"></span> Preparing download...';
+      
+      try {
+        const response = await fetch(`${API_BASE}/videos/${currentVideoId}/download`, {
+          method: 'POST'
+        });
+        
+        const data = await response.json();
+        
+        if (response.ok) {
+          // Start the download
+          window.location.href = data.downloadUrl;
+          
+          // Show success message and disable button permanently
+          document.getElementById('downloadStatus').innerHTML = `
+            <div class="message message-success">
+              Download started! If it doesn't begin automatically, 
+              <a href="${data.downloadUrl}" target="_blank">click here</a>.
+            </div>
+            <div class="message message-warning" style="margin-top: 10px;">
+              Note: This was a one-time download. The link has been disabled.
+            </div>
+          `;
+        } else {
+          downloadBtn.disabled = false;
+          downloadBtn.textContent = 'Download Now';
+          
+          if (data.reason === 'already_downloaded') {
+            document.getElementById('downloadStatus').innerHTML = `
+              <div class="message message-warning">
+                This video has already been downloaded. Contact the admin if you need to download again.
+              </div>
+            `;
+          } else {
+            showMessage(data.error || 'Download failed', 'error');
+          }
+        }
+      } catch (error) {
+        downloadBtn.disabled = false;
+        downloadBtn.textContent = 'Download Now';
+        showMessage('Network error. Please try again.', 'error');
+      }
+    }
+
+    // ========== Utility Functions ==========
+    
+    function showMessage(message, type) {
+      const container = document.getElementById('messageContainer');
+      const id = Date.now();
+      
+      container.innerHTML += `
+        <div class="message message-${type}" id="msg-${id}">
+          ${message}
+        </div>
+      `;
+      
+      // Auto-remove after 5 seconds (except for info messages)
+      if (type !== 'info') {
+        setTimeout(() => {
+          const msg = document.getElementById(`msg-${id}`);
+          if (msg) msg.remove();
+        }, 5000);
+      }
+    }
+
+    function formatFileSize(bytes) {
+      if (bytes === 0) return '0 Bytes';
+      const k = 1024;
+      const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+      const i = Math.floor(Math.log(bytes) / Math.log(k));
+      return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    function formatDate(dateString) {
+      const date = new Date(dateString);
+      return date.toLocaleString();
+    }
+
+    function escapeHtml(text) {
+      const div = document.createElement('div');
+      div.textContent = text;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

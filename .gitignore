@@ -1,0 +1,29 @@
+# Dependencies
+node_modules/
+lambda/auto-delete/node_modules/
+
+# Environment variables (NEVER COMMIT!)
+.env
+.env.local
+.env.production
+
+# Build artifacts
+*.zip
+dist/
+build/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE
+.vscode/
+.idea/
+
+# Temporary files
+*.tmp
+*.temp

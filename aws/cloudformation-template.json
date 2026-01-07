@@ -1,0 +1,313 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Description": "Video Share App - Cost-optimized one-time download solution",
+  
+  "Parameters": {
+    "BucketName": {
+      "Type": "String",
+      "Description": "Name for the S3 bucket (must be globally unique)",
+      "Default": "video-share-bucket-CHANGE-ME"
+    },
+    "AdminEmail": {
+      "Type": "String",
+      "Description": "Admin email for billing alerts",
+      "Default": "admin@example.com"
+    }
+  },
+
+  "Resources": {
+    
+    "VideoShareBucket": {
+      "Type": "AWS::S3::Bucket",
+      "Properties": {
+        "BucketName": { "Ref": "BucketName" },
+        "PublicAccessBlockConfiguration": {
+          "BlockPublicAcls": true,
+          "BlockPublicPolicy": true,
+          "IgnorePublicAcls": true,
+          "RestrictPublicBuckets": true
+        },
+        "BucketEncryption": {
+          "ServerSideEncryptionConfiguration": [
+            {
+              "ServerSideEncryptionByDefault": {
+                "SSEAlgorithm": "AES256"
+              }
+            }
+          ]
+        },
+        "LifecycleConfiguration": {
+          "Rules": [
+            {
+              "Id": "DeleteIncompleteMultipartUploads",
+              "Status": "Enabled",
+              "AbortIncompleteMultipartUpload": {
+                "DaysAfterInitiation": 1
+              }
+            },
+            {
+              "Id": "TransitionToIntelligentTiering",
+              "Status": "Enabled",
+              "Transitions": [
+                {
+                  "Days": 1,
+                  "StorageClass": "INTELLIGENT_TIERING"
+                }
+              ]
+            }
+          ]
+        },
+        "CorsConfiguration": {
+          "CorsRules": [
+            {
+              "AllowedHeaders": ["*"],
+              "AllowedMethods": ["GET", "PUT", "HEAD"],
+              "AllowedOrigins": ["*"],
+              "MaxAge": 3600
+            }
+          ]
+        }
+      }
+    },
+
+    "VideoShareTable": {
+      "Type": "AWS::DynamoDB::Table",
+      "Properties": {
+        "TableName": "video-share-videos",
+        "BillingMode": "PAY_PER_REQUEST",
+        "AttributeDefinitions": [
+          {
+            "AttributeName": "video_id",
+            "AttributeType": "S"
+          }
+        ],
+        "KeySchema": [
+          {
+            "AttributeName": "video_id",
+            "KeyType": "HASH"
+          }
+        ],
+        "TimeToLiveSpecification": {
+          "AttributeName": "ttl",
+          "Enabled": true
+        }
+      }
+    },
+
+    "LambdaExecutionRole": {
+      "Type": "AWS::IAM::Role",
+      "Properties": {
+        "RoleName": "video-auto-delete-lambda-role",
+        "AssumeRolePolicyDocument": {
+          "Version": "2012-10-17",
+          "Statement": [
+            {
+              "Effect": "Allow",
+              "Principal": {
+                "Service": "lambda.amazonaws.com"
+              },
+              "Action": "sts:AssumeRole"
+            }
+          ]
+        },
+        "ManagedPolicyArns": [
+          "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
+        ],
+        "Policies": [
+          {
+            "PolicyName": "VideoAutoDeletePolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:Scan",
+                    "dynamodb:DeleteItem"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["VideoShareTable", "Arn"] }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:DeleteObject"
+                  ],
+                  "Resource": { 
+                    "Fn::Sub": "arn:aws:s3:::${BucketName}/*" 
+                  }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    "AutoDeleteLambda": {
+      "Type": "AWS::Lambda::Function",
+      "Properties": {
+        "FunctionName": "video-auto-delete",
+        "Runtime": "nodejs18.x",
+        "Handler": "index.handler",
+        "Role": { "Fn::GetAtt": ["LambdaExecutionRole", "Arn"] },
+        "Timeout": 300,
+        "MemorySize": 128,
+        "Environment": {
+          "Variables": {
+            "DYNAMODB_TABLE_NAME": "video-share-videos",
+            "S3_BUCKET_NAME": { "Ref": "BucketName" }
+          }
+        },
+        "Code": {
+          "ZipFile": "exports.handler = async (event) => { console.log('Deploy actual code'); return { statusCode: 200 }; }"
+        }
+      }
+    },
+
+    "AutoDeleteScheduleRule": {
+      "Type": "AWS::Events::Rule",
+      "Properties": {
+        "Name": "video-auto-delete-schedule",
+        "Description": "Trigger video auto-delete every hour",
+        "ScheduleExpression": "rate(1 hour)",
+        "State": "ENABLED",
+        "Targets": [
+          {
+            "Id": "AutoDeleteLambdaTarget",
+            "Arn": { "Fn::GetAtt": ["AutoDeleteLambda", "Arn"] }
+          }
+        ]
+      }
+    },
+
+    "LambdaSchedulePermission": {
+      "Type": "AWS::Lambda::Permission",
+      "Properties": {
+        "FunctionName": { "Ref": "AutoDeleteLambda" },
+        "Action": "lambda:InvokeFunction",
+        "Principal": "events.amazonaws.com",
+        "SourceArn": { "Fn::GetAtt": ["AutoDeleteScheduleRule", "Arn"] }
+      }
+    },
+
+    "BackendAppUserAccessKey": {
+      "Type": "AWS::IAM::User",
+      "Properties": {
+        "UserName": "video-share-backend-user",
+        "Policies": [
+          {
+            "PolicyName": "VideoShareBackendPolicy",
+            "PolicyDocument": {
+              "Version": "2012-10-17",
+              "Statement": [
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "s3:PutObject",
+                    "s3:GetObject",
+                    "s3:DeleteObject",
+                    "s3:HeadObject"
+                  ],
+                  "Resource": { 
+                    "Fn::Sub": "arn:aws:s3:::${BucketName}/*" 
+                  }
+                },
+                {
+                  "Effect": "Allow",
+                  "Action": [
+                    "dynamodb:PutItem",
+                    "dynamodb:GetItem",
+                    "dynamodb:UpdateItem",
+                    "dynamodb:DeleteItem",
+                    "dynamodb:Scan"
+                  ],
+                  "Resource": { "Fn::GetAtt": ["VideoShareTable", "Arn"] }
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+
+    "BillingAlarmSNSTopic": {
+      "Type": "AWS::SNS::Topic",
+      "Properties": {
+        "TopicName": "video-share-billing-alerts",
+        "Subscription": [
+          {
+            "Protocol": "email",
+            "Endpoint": { "Ref": "AdminEmail" }
+          }
+        ]
+      }
+    },
+
+    "BillingAlarm70Percent": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "video-share-billing-70-percent",
+        "AlarmDescription": "Billing alert at 70% of $15 budget ($10.50)",
+        "MetricName": "EstimatedCharges",
+        "Namespace": "AWS/Billing",
+        "Statistic": "Maximum",
+        "Period": 21600,
+        "EvaluationPeriods": 1,
+        "Threshold": 10.50,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Currency",
+            "Value": "USD"
+          }
+        ],
+        "AlarmActions": [
+          { "Ref": "BillingAlarmSNSTopic" }
+        ]
+      }
+    },
+
+    "BillingAlarm90Percent": {
+      "Type": "AWS::CloudWatch::Alarm",
+      "Properties": {
+        "AlarmName": "video-share-billing-90-percent",
+        "AlarmDescription": "Billing alert at 90% of $15 budget ($13.50)",
+        "MetricName": "EstimatedCharges",
+        "Namespace": "AWS/Billing",
+        "Statistic": "Maximum",
+        "Period": 21600,
+        "EvaluationPeriods": 1,
+        "Threshold": 13.50,
+        "ComparisonOperator": "GreaterThanThreshold",
+        "Dimensions": [
+          {
+            "Name": "Currency",
+            "Value": "USD"
+          }
+        ],
+        "AlarmActions": [
+          { "Ref": "BillingAlarmSNSTopic" }
+        ]
+      }
+    }
+  },
+
+  "Outputs": {
+    "BucketName": {
+      "Description": "S3 Bucket Name",
+      "Value": { "Ref": "VideoShareBucket" }
+    },
+    "TableName": {
+      "Description": "DynamoDB Table Name",
+      "Value": { "Ref": "VideoShareTable" }
+    },
+    "LambdaFunction": {
+      "Description": "Auto-delete Lambda Function",
+      "Value": { "Ref": "AutoDeleteLambda" }
+    },
+    "BackendUser": {
+      "Description": "IAM User for backend application",
+      "Value": { "Ref": "BackendAppUserAccessKey" }
+    }
+  }
+}
