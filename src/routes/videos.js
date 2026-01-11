@@ -60,10 +60,15 @@ router.post('/:videoId/confirm-upload', requireAdmin, async (req, res) => {
   try {
     const { videoId } = req.params;
 
+    console.log(`🔍 Confirming upload for video ${videoId}...`);
+
     const video = await dynamoService.getVideo(videoId);
     if (!video) {
+      console.error(`❌ Video ${videoId} not found in DynamoDB`);
       return res.status(404).json({ error: 'Video not found' });
     }
+
+    console.log(`📂 Checking S3 for file: ${video.s3_key}`);
 
     // Verify file exists in S3 with retry (for multipart upload eventual consistency)
     let exists = false;
@@ -71,21 +76,28 @@ router.post('/:videoId/confirm-upload', requireAdmin, async (req, res) => {
     while (retries > 0 && !exists) {
       exists = await s3Service.videoExists(video.s3_key);
       if (!exists) {
-        console.log(`File not found yet, retrying... (${retries} attempts left)`);
+        console.log(`⏳ File not found yet in S3, retrying... (${retries} attempts left)`);
         await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
         retries--;
       }
     }
     
     if (!exists) {
+      console.error(`❌ Video file not found in S3 after 5 retries: ${video.s3_key}`);
       return res.status(400).json({ error: 'Video file not found in S3. Upload may have failed.' });
     }
+
+    console.log(`✅ File found in S3! Getting metadata...`);
 
     // Get actual file metadata from S3
     const metadata = await s3Service.getVideoMetadata(video.s3_key);
     
+    console.log(`📊 File size: ${(metadata.size / 1024 / 1024).toFixed(2)} MB`);
+    
     // Update DynamoDB with upload confirmation
     await dynamoService.confirmUpload(videoId, metadata.size);
+
+    console.log(`✅ Upload confirmed for video ${videoId}`);
 
     res.json({
       videoId,
@@ -94,8 +106,9 @@ router.post('/:videoId/confirm-upload', requireAdmin, async (req, res) => {
       video,
     });
   } catch (error) {
-    console.error('Error confirming upload:', error);
-    res.status(500).json({ error: 'Failed to confirm upload' });
+    console.error(`❌ Error confirming upload:`, error);
+    console.error('Error details:', error.message);
+    res.status(500).json({ error: `Failed to confirm upload: ${error.message}` });
   }
 });
 
@@ -130,16 +143,21 @@ router.post('/:videoId/complete-multipart', requireAdmin, async (req, res) => {
     const { videoId } = req.params;
     const { uploadId, parts, s3Key } = req.body;
 
+    console.log(`📦 Completing multipart upload for video ${videoId}: ${parts.length} parts`);
+
     if (!uploadId || !parts || !s3Key) {
       return res.status(400).json({ error: 'uploadId, parts, and s3Key are required' });
     }
 
     await s3Service.completeMultipartUpload(s3Key, uploadId, parts);
+    
+    console.log(`✅ Multipart upload completed successfully for video ${videoId}`);
 
     res.json({ success: true, message: 'Multipart upload completed' });
   } catch (error) {
-    console.error('Error completing multipart upload:', error);
-    res.status(500).json({ error: 'Failed to complete multipart upload' });
+    console.error('❌ Error completing multipart upload:', error);
+    console.error('Error details:', error.message);
+    res.status(500).json({ error: `Failed to complete multipart upload: ${error.message}` });
   }
 });
 
