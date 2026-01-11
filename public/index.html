@@ -1115,34 +1115,54 @@
         const data = await response.json();
         
         if (response.ok) {
-          // Show progress bar
-          downloadBtn.style.display = 'none';
-          progressBar.style.display = 'block';
+          // For large files (>100MB), use direct download instead of progress tracking
+          const fileSize = parseInt(document.getElementById('downloadFileSize').textContent);
+          const useDirect = fileSize > 100 * 1024 * 1024; // 100MB threshold
           
-          // Download with progress tracking
-          try {
-            await downloadFileWithProgress(data.downloadUrl, progressFill, progressText);
+          if (useDirect) {
+            // Direct download for large files - let browser handle it
+            console.log('🔽 Large file - using browser download manager');
+            downloadBtn.innerHTML = '✅ Download starting...';
             
-            // Show success message
-            document.getElementById('downloadStatus').innerHTML = `
-              <div class="message message-success">
-                ✅ Download completed successfully!
-              </div>
-              <div class="message message-warning" style="margin-top: 10px;">
-                ⚠️ This was a one-time download. You cannot download again.
-              </div>
-            `;
-          } catch (downloadError) {
-            // Fallback to direct download if progress tracking fails
+            // Trigger download
             window.location.href = data.downloadUrl;
-            document.getElementById('downloadStatus').innerHTML = `
-              <div class="message message-success">
-                ✅ Download started successfully!
-              </div>
-              <div class="message message-warning" style="margin-top: 10px;">
-                ⚠️ This was a one-time download. You cannot download again.
-              </div>
-            `;
+            
+            // Show success message after a delay
+            setTimeout(() => {
+              downloadBtn.style.display = 'none';
+              document.getElementById('downloadStatus').innerHTML = `
+                <div class="message message-success">
+                  ✅ <strong>DOWNLOAD STARTED!</strong><br>
+                  Check your browser's download manager for progress.
+                </div>
+                <div class="message message-warning" style="margin-top: 10px;">
+                  ⚠️ This was a one-time download. The link is no longer valid.
+                </div>
+              `;
+            }, 2000);
+          } else {
+            // Show progress bar for smaller files
+            downloadBtn.style.display = 'none';
+            progressBar.style.display = 'block';
+            
+            // Download with progress tracking
+            try {
+              await downloadFileWithProgress(data.downloadUrl, progressFill, progressText);
+              
+              // Show success message
+              document.getElementById('downloadStatus').innerHTML = `
+                <div class="message message-success">
+                  ✅ <strong>DOWNLOAD COMPLETE!</strong><br>
+                  File saved to your downloads folder.
+                </div>
+                <div class="message message-warning" style="margin-top: 10px;">
+                  ⚠️ This was a one-time download. The link is no longer valid.
+                </div>
+              `;
+            } catch (downloadError) {
+              console.error('Progress tracking failed, using direct download:', downloadError);
+              window.location.href = data.downloadUrl;
+            }
           }
         } else {
           downloadBtn.disabled = false;
