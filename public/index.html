@@ -185,12 +185,13 @@
     }
 
     .progress-bar {
-      height: 20px;
+      height: 30px;
       background: #eee;
       border-radius: 10px;
       overflow: hidden;
       margin-top: 10px;
       display: none;
+      position: relative;
     }
 
     .progress-bar-fill {
@@ -198,6 +199,17 @@
       background: #3498db;
       width: 0%;
       transition: width 0.3s;
+    }
+
+    .progress-text {
+      position: absolute;
+      top: 50%;
+      left: 50%;
+      transform: translate(-50%, -50%);
+      color: #333;
+      font-weight: 600;
+      font-size: 14px;
+      z-index: 1;
     }
 
     /* Video List */
@@ -413,6 +425,7 @@
         </div>
         <div class="progress-bar" id="progressBar">
           <div class="progress-bar-fill" id="progressFill"></div>
+          <div class="progress-text" id="progressText">0%</div>
         </div>
       </div>
 
@@ -439,6 +452,10 @@
           <button class="btn btn-success" id="downloadBtn" onclick="downloadVideo()">
             Download Now
           </button>
+          <div class="progress-bar" id="downloadProgressBar" style="display: none; margin-top: 15px;">
+            <div class="progress-bar-fill" id="downloadProgressFill"></div>
+            <div class="progress-text" id="downloadProgressText">0%</div>
+          </div>
         </div>
       </div>
     </section>
@@ -650,8 +667,21 @@
       
       document.getElementById('progressBar').style.display = 'block';
       
+      // Prevent page unload during upload
+      window.onbeforeunload = () => 'Upload in progress. Are you sure you want to leave?';
+      
+      // Keep screen awake if supported
+      let wakeLock = null;
+      if ('wakeLock' in navigator) {
+        try {
+          wakeLock = await navigator.wakeLock.request('screen');
+        } catch (err) {
+          console.log('Wake lock failed:', err);
+        }
+      }
+      
       try {
-        // Step 1: Get pre-signed upload URL
+        // Step 1: Get pre-signed upload URL or multipart upload ID
         const urlResponse = await fetch(`${API_BASE}/videos/upload-url`, {
           method: 'POST',
           headers: {
@@ -670,13 +700,17 @@
           throw new Error(error.error || 'Failed to get upload URL');
         }
         
-        const { uploadUrl, videoId } = await urlResponse.json();
+        const uploadInfo = await urlResponse.json();
         
-        // Step 2: Upload file directly to S3
-        await uploadToS3(uploadUrl, selectedFile);
+        // Step 2: Upload file (multipart for large files, direct for small)
+        if (uploadInfo.multipart) {
+          await uploadMultipart(uploadInfo, selectedFile);
+        } else {
+          await uploadToS3(uploadInfo.uploadUrl, selectedFile);
+        }
         
         // Step 3: Confirm upload
-        const confirmResponse = await fetch(`${API_BASE}/videos/${videoId}/confirm-upload`, {
+        const confirmResponse = await fetch(`${API_BASE}/videos/${uploadInfo.videoId}/confirm-upload`, {
           method: 'POST',
           headers: { 'Authorization': `Bearer ${authToken}` }
         });
@@ -685,27 +719,34 @@
           throw new Error('Failed to confirm upload');
         }
         
-        showMessage('Video uploaded successfully!', 'success');
+        showMessage('✅ Video uploaded successfully!', 'success');
         
         // Show the share link
-        const shareLink = `${window.location.origin}/download/${videoId}`;
-        showMessage(`Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'info');
+        const shareLink = `${window.location.origin}/download/${uploadInfo.videoId}`;
+        showMessage(`📋 Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'info');
         
         // Reset upload form
         selectedFile = null;
         document.getElementById('uploadInfo').style.display = 'none';
         document.getElementById('progressBar').style.display = 'none';
         document.getElementById('progressFill').style.width = '0%';
+        document.getElementById('progressText').textContent = '0%';
         document.getElementById('fileInput').value = '';
         
         // Reload video list
         loadVideos();
         
       } catch (error) {
-        showMessage(error.message, 'error');
+        showMessage('❌ ' + error.message, 'error');
       } finally {
         uploadBtn.disabled = false;
         uploadBtn.textContent = 'Upload Video';
+        window.onbeforeunload = null;
+        
+        // Release wake lock
+        if (wakeLock) {
+          wakeLock.release();
+        }
       }
     }
 
@@ -715,8 +756,9 @@
         
         xhr.upload.addEventListener('progress', (e) => {
           if (e.lengthComputable) {
-            const percent = (e.loaded / e.total) * 100;
+            const percent = Math.round((e.loaded / e.total) * 100);
             document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = `${percent}%`;
           }
         });
         
@@ -733,6 +775,140 @@
         xhr.open('PUT', uploadUrl);
         xhr.setRequestHeader('Content-Type', file.type);
         xhr.send(file);
+      });
+    }
+
+    async function uploadMultipart(uploadInfo, file) {
+      const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks
+      const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
+      const uploadedParts = [];
+      
+      console.log(`Starting multipart upload: ${totalChunks} parts`);
+      
+      for (let partNumber = 1; partNumber <= totalChunks; partNumber++) {
+        const start = (partNumber - 1) * CHUNK_SIZE;
+        const end = Math.min(start + CHUNK_SIZE, file.size);
+        const chunk = file.slice(start, end);
+        
+        // Retry logic for each chunk
+        let retries = 3;
+        let uploaded = false;
+        
+        while (retries > 0 && !uploaded) {
+          try {
+            // Get pre-signed URL for this part
+            const partUrlResponse = await fetch(`${API_BASE}/videos/${uploadInfo.videoId}/part-url`, {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${authToken}`
+              },
+              body: JSON.stringify({
+                uploadId: uploadInfo.uploadId,
+                partNumber,
+                s3Key: uploadInfo.key
+              })
+            });
+            
+            if (!partUrlResponse.ok) {
+              throw new Error('Failed to get part URL');
+            }
+            
+            const { uploadUrl } = await partUrlResponse.json();
+            
+            // Upload this chunk
+            const etag = await uploadChunk(uploadUrl, chunk, partNumber, totalChunks, start, file.size);
+            
+            uploadedParts.push({
+              PartNumber: partNumber,
+              ETag: etag
+            });
+            
+            uploaded = true;
+            console.log(`Part ${partNumber}/${totalChunks} uploaded successfully`);
+            
+          } catch (error) {
+            retries--;
+            console.error(`Part ${partNumber} failed, retries left: ${retries}`, error);
+            
+            if (retries === 0) {
+              // Abort the multipart upload
+              await fetch(`${API_BASE}/videos/${uploadInfo.videoId}/abort-multipart`, {
+                method: 'POST',
+                headers: {
+                  'Content-Type': 'application/json',
+                  'Authorization': `Bearer ${authToken}`
+                },
+                body: JSON.stringify({
+                  uploadId: uploadInfo.uploadId,
+                  s3Key: uploadInfo.key
+                })
+              });
+              
+              throw new Error(`Upload failed at part ${partNumber}/${totalChunks}`);
+            }
+            
+            // Wait before retry
+            await new Promise(resolve => setTimeout(resolve, 2000));
+          }
+        }
+      }
+      
+      // Complete multipart upload
+      const completeResponse = await fetch(`${API_BASE}/videos/${uploadInfo.videoId}/complete-multipart`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          uploadId: uploadInfo.uploadId,
+          parts: uploadedParts,
+          s3Key: uploadInfo.key
+        })
+      });
+      
+      if (!completeResponse.ok) {
+        throw new Error('Failed to complete multipart upload');
+      }
+      
+      console.log('Multipart upload completed!');
+    }
+
+    async function uploadChunk(uploadUrl, chunk, partNumber, totalParts, uploadedBytes, totalSize) {
+      return new Promise((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        
+        xhr.upload.addEventListener('progress', (e) => {
+          if (e.lengthComputable) {
+            // Calculate overall progress
+            const chunkProgress = e.loaded;
+            const totalUploaded = uploadedBytes + chunkProgress;
+            const percent = Math.round((totalUploaded / totalSize) * 100);
+            
+            document.getElementById('progressFill').style.width = `${percent}%`;
+            document.getElementById('progressText').textContent = `${percent}% (Part ${partNumber}/${totalParts})`;
+          }
+        });
+        
+        xhr.addEventListener('load', () => {
+          if (xhr.status >= 200 && xhr.status < 300) {
+            const etag = xhr.getResponseHeader('ETag');
+            if (etag) {
+              resolve(etag.replace(/"/g, '')); // Remove quotes from ETag
+            } else {
+              reject(new Error('No ETag in response'));
+            }
+          } else {
+            reject(new Error(`Chunk upload failed with status ${xhr.status}`));
+          }
+        });
+        
+        xhr.addEventListener('error', () => reject(new Error('Chunk upload network error')));
+        xhr.addEventListener('abort', () => reject(new Error('Chunk upload aborted')));
+        
+        xhr.open('PUT', uploadUrl);
+        xhr.send(chunk);
       });
     }
 
@@ -872,6 +1048,10 @@
     
     async function downloadVideo() {
       const downloadBtn = document.getElementById('downloadBtn');
+      const progressBar = document.getElementById('downloadProgressBar');
+      const progressFill = document.getElementById('downloadProgressFill');
+      const progressText = document.getElementById('downloadProgressText');
+      
       downloadBtn.disabled = true;
       downloadBtn.innerHTML = '<span class="loading"></span> Preparing download...';
       
@@ -883,18 +1063,35 @@
         const data = await response.json();
         
         if (response.ok) {
-          // Start the download
-          window.location.href = data.downloadUrl;
+          // Show progress bar
+          downloadBtn.style.display = 'none';
+          progressBar.style.display = 'block';
           
-          // Show success message and disable button permanently
-          document.getElementById('downloadStatus').innerHTML = `
-            <div class="message message-success">
-              ✅ Download started successfully!
-            </div>
-            <div class="message message-warning" style="margin-top: 10px;">
-              ⚠️ This was a one-time download. You cannot download again.
-            </div>
-          `;
+          // Download with progress tracking
+          try {
+            await downloadFileWithProgress(data.downloadUrl, progressFill, progressText);
+            
+            // Show success message
+            document.getElementById('downloadStatus').innerHTML = `
+              <div class="message message-success">
+                ✅ Download completed successfully!
+              </div>
+              <div class="message message-warning" style="margin-top: 10px;">
+                ⚠️ This was a one-time download. You cannot download again.
+              </div>
+            `;
+          } catch (downloadError) {
+            // Fallback to direct download if progress tracking fails
+            window.location.href = data.downloadUrl;
+            document.getElementById('downloadStatus').innerHTML = `
+              <div class="message message-success">
+                ✅ Download started successfully!
+              </div>
+              <div class="message message-warning" style="margin-top: 10px;">
+                ⚠️ This was a one-time download. You cannot download again.
+              </div>
+            `;
+          }
         } else {
           downloadBtn.disabled = false;
           downloadBtn.textContent = 'Download Now';
@@ -914,6 +1111,55 @@
         downloadBtn.textContent = 'Download Now';
         showMessage('Network error. Please try again.', 'error');
       }
+    }
+
+    async function downloadFileWithProgress(url, progressFill, progressText) {
+      return new Promise(async (resolve, reject) => {
+        try {
+          const response = await fetch(url);
+          const contentLength = response.headers.get('content-length');
+          
+          if (!contentLength) {
+            // Fallback if content-length not available
+            reject(new Error('Content-Length not available'));
+            return;
+          }
+
+          const total = parseInt(contentLength, 10);
+          let loaded = 0;
+
+          const reader = response.body.getReader();
+          const chunks = [];
+
+          while (true) {
+            const { done, value } = await reader.read();
+            
+            if (done) break;
+            
+            chunks.push(value);
+            loaded += value.length;
+            
+            const percent = Math.round((loaded / total) * 100);
+            progressFill.style.width = `${percent}%`;
+            progressText.textContent = `${percent}%`;
+          }
+
+          // Create blob and trigger download
+          const blob = new Blob(chunks);
+          const blobUrl = window.URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = document.getElementById('downloadFileName').textContent;
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          window.URL.revokeObjectURL(blobUrl);
+          
+          resolve();
+        } catch (error) {
+          reject(error);
+        }
+      });
     }
 
     // ========== Utility Functions ==========

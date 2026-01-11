@@ -87,6 +87,75 @@ router.post('/:videoId/confirm-upload', requireAdmin, async (req, res) => {
 });
 
 /**
+ * POST /api/videos/:videoId/part-url
+ * Generate pre-signed URL for a single part (Admin only)
+ */
+router.post('/:videoId/part-url', requireAdmin, async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const { uploadId, partNumber, s3Key } = req.body;
+
+    if (!uploadId || !partNumber || !s3Key) {
+      return res.status(400).json({ error: 'uploadId, partNumber, and s3Key are required' });
+    }
+
+    const uploadUrl = await s3Service.generatePartUploadUrl(s3Key, uploadId, partNumber);
+
+    res.json({ uploadUrl, partNumber });
+  } catch (error) {
+    console.error('Error generating part URL:', error);
+    res.status(500).json({ error: 'Failed to generate part URL' });
+  }
+});
+
+/**
+ * POST /api/videos/:videoId/complete-multipart
+ * Complete multipart upload (Admin only)
+ */
+router.post('/:videoId/complete-multipart', requireAdmin, async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const { uploadId, parts, s3Key } = req.body;
+
+    if (!uploadId || !parts || !s3Key) {
+      return res.status(400).json({ error: 'uploadId, parts, and s3Key are required' });
+    }
+
+    await s3Service.completeMultipartUpload(s3Key, uploadId, parts);
+
+    res.json({ success: true, message: 'Multipart upload completed' });
+  } catch (error) {
+    console.error('Error completing multipart upload:', error);
+    res.status(500).json({ error: 'Failed to complete multipart upload' });
+  }
+});
+
+/**
+ * POST /api/videos/:videoId/abort-multipart
+ * Abort multipart upload (Admin only)
+ */
+router.post('/:videoId/abort-multipart', requireAdmin, async (req, res) => {
+  try {
+    const { videoId } = req.params;
+    const { uploadId, s3Key } = req.body;
+
+    if (!uploadId || !s3Key) {
+      return res.status(400).json({ error: 'uploadId and s3Key are required' });
+    }
+
+    await s3Service.abortMultipartUpload(s3Key, uploadId);
+
+    // Also delete from DynamoDB
+    await dynamoService.deleteVideo(videoId);
+
+    res.json({ success: true, message: 'Multipart upload aborted' });
+  } catch (error) {
+    console.error('Error aborting multipart upload:', error);
+    res.status(500).json({ error: 'Failed to abort multipart upload' });
+  }
+});
+
+/**
  * GET /api/videos
  * List all videos (Admin only)
  */
