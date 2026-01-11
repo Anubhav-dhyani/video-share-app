@@ -719,11 +719,14 @@
           throw new Error('Failed to confirm upload');
         }
         
-        showMessage('✅ Video uploaded successfully!', 'success');
+        // Clear any previous messages first
+        const messageContainer = document.getElementById('message');
+        messageContainer.style.display = 'none';
+        messageContainer.innerHTML = '';
         
-        // Show the share link
+        // Show upload complete with share link
         const shareLink = `${window.location.origin}/download/${uploadInfo.videoId}`;
-        showMessage(`📋 Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'info');
+        showMessage(`✅ <strong>UPLOAD COMPLETE!</strong><br>📋 Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'success');
         
         // Reset upload form
         selectedFile = null;
@@ -873,6 +876,7 @@
       }
       
       console.log('Multipart upload completed!');
+      return uploadInfo.videoId;
     }
 
     async function uploadChunk(uploadUrl, chunk, partNumber, totalParts, uploadedBytes, totalSize) {
@@ -1154,6 +1158,17 @@
           a.click();
           document.body.removeChild(a);
           window.URL.revokeObjectURL(blobUrl);
+          
+          // Show download complete message
+          document.getElementById('downloadStatus').innerHTML = `
+            <div class="message message-success">
+              ✅ <strong>DOWNLOAD COMPLETE!</strong><br>
+              File saved to your downloads folder.
+            </div>
+            <div class="message message-warning" style="margin-top: 10px;">
+              ⚠️ This was a one-time download. The link is no longer valid.
+            </div>
+          `;
           
           resolve();
         } catch (error) {
