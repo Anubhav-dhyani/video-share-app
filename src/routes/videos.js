@@ -29,23 +29,38 @@ router.post('/upload-url', requireAdmin, async (req, res) => {
     // Generate video ID
     const videoId = uuidv4();
 
-    // Generate pre-signed upload URL
-    const { uploadUrl, key } = await s3Service.generateUploadUrl(videoId, fileName, contentType, fileSize);
+    // Generate pre-signed upload URL or multipart upload initiation
+    const uploadInfo = await s3Service.generateUploadUrl(videoId, fileName, contentType, fileSize);
 
     // Create video record in DynamoDB
     const video = await dynamoService.createVideo({
       videoId,
       fileName,
       fileSize,
-      s3Key: key,
+      s3Key: uploadInfo.key,
     });
 
-    res.json({
+    // Return different response based on upload type
+    const response = {
       videoId,
-      uploadUrl,
       video,
       expiresAt: video.expires_at,
-    });
+      key: uploadInfo.key,
+    };
+
+    if (uploadInfo.multipart) {
+      // Multipart upload - return uploadId
+      response.multipart = true;
+      response.uploadId = uploadInfo.uploadId;
+      console.log(`📦 Initiated multipart upload for ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+    } else {
+      // Direct upload - return pre-signed URL
+      response.uploadUrl = uploadInfo.uploadUrl;
+      response.multipart = false;
+      console.log(`📤 Generated upload URL for ${fileName} (${(fileSize / 1024 / 1024).toFixed(2)} MB)`);
+    }
+
+    res.json(response);
   } catch (error) {
     console.error('Error generating upload URL:', error);
     res.status(500).json({ error: 'Failed to generate upload URL' });
