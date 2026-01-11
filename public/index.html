@@ -792,11 +792,11 @@
     }
 
     async function uploadMultipart(uploadInfo, file) {
-      const CHUNK_SIZE = 100 * 1024 * 1024; // 100MB chunks
+      const CHUNK_SIZE = 50 * 1024 * 1024; // 50MB chunks (reduced for slower connections)
       const totalChunks = Math.ceil(file.size / CHUNK_SIZE);
       const uploadedParts = [];
       
-      console.log(`Starting multipart upload: ${totalChunks} parts`);
+      console.log(`Starting multipart upload: ${totalChunks} parts (${(CHUNK_SIZE / 1024 / 1024).toFixed(0)}MB each)`);
       
       for (let partNumber = 1; partNumber <= totalChunks; partNumber++) {
         const start = (partNumber - 1) * CHUNK_SIZE;
@@ -842,8 +842,17 @@
             
           } catch (error) {
             retries--;
+            
+            // Check if it's a timeout error (504)
+            const isTimeout = error.message.includes('504') || error.message.includes('timeout');
+            const retryDelay = isTimeout ? 5000 : 2000; // 5 seconds for timeout, 2 for others
+            
             console.error(`❌ Part ${partNumber}/${totalChunks} failed:`, error.message || error);
             console.error('Error details:', error);
+            
+            if (isTimeout) {
+              console.log(`⏳ Timeout detected, waiting ${retryDelay/1000} seconds before retry...`);
+            }
             
             if (retries === 0) {
               console.error(`❌ UPLOAD FAILED: Part ${partNumber}/${totalChunks} failed after 3 attempts`);
@@ -867,6 +876,11 @@
               
               throw new Error(`Upload failed at part ${partNumber}/${totalChunks}: ${error.message}`);
             }
+            
+            // Wait before retry
+            console.log(`🔄 Retrying part ${partNumber}... (${retries} attempts left)`);
+            await new Promise(resolve => setTimeout(resolve, retryDelay));
+          }
             
             // Wait before retry
             await new Promise(resolve => setTimeout(resolve, 2000));
@@ -930,8 +944,11 @@
               reject(new Error('No ETag in response'));
             }
           } else {
-            console.error(`❌ Part ${partNumber}/${totalParts} failed with HTTP ${xhr.status}`);
-            reject(new Error(`Chunk upload failed with status ${xhr.status}`));
+            const errorMsg = xhr.status === 504 
+              ? `Gateway timeout (504) - Your internet might be slow. Will retry...`
+              : `HTTP ${xhr.status} error`;
+            console.error(`❌ Part ${partNumber}/${totalParts}: ${errorMsg}`);
+            reject(new Error(errorMsg));
           }
         });
         

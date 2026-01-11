@@ -14,8 +14,8 @@ const s3Client = new S3Client({
 async function generateUploadUrl(videoId, fileName, contentType, fileSize) {
   const key = `videos/${videoId}/${fileName}`;
   
-  // For files larger than 100MB, use multipart upload
-  if (fileSize > 100 * 1024 * 1024) {
+  // For files larger than 50MB, use multipart upload (reduced threshold for better reliability)
+  if (fileSize > 50 * 1024 * 1024) {
     return await initiateMultipartUpload(key, contentType, videoId);
   }
   
@@ -64,7 +64,7 @@ async function generatePartUploadUrl(key, uploadId, partNumber) {
   });
 
   const uploadUrl = await getSignedUrl(s3Client, command, {
-    expiresIn: 3600, // 1 hour
+    expiresIn: 43200, // 12 hours for slow connections
   });
 
   return uploadUrl;
