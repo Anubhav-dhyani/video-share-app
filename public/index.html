@@ -727,11 +727,6 @@
         
         console.log('✅ Upload confirmed!');
         
-        // Clear any previous messages first
-        const messageContainer = document.getElementById('message');
-        messageContainer.style.display = 'none';
-        messageContainer.innerHTML = '';
-        
         // Show upload complete with share link
         const shareLink = `${window.location.origin}/download/${uploadInfo.videoId}`;
         showMessage(`✅ <strong>UPLOAD COMPLETE!</strong><br>📋 Share link: <a href="${shareLink}" target="_blank">${shareLink}</a>`, 'success');
