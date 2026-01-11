@@ -69,6 +69,25 @@ async function markAsDownloaded(videoId) {
 }
 
 /**
+ * Confirm upload completion and update actual file size
+ */
+async function confirmUpload(videoId, actualSize) {
+  const response = await docClient.send(new UpdateCommand({
+    TableName: TABLE_NAME,
+    Key: { video_id: videoId },
+    UpdateExpression: 'SET upload_confirmed = :confirmed, actual_file_size = :size, upload_confirmed_at = :confirmedAt',
+    ExpressionAttributeValues: {
+      ':confirmed': true,
+      ':size': actualSize,
+      ':confirmedAt': new Date().toISOString(),
+    },
+    ReturnValues: 'ALL_NEW',
+  }));
+
+  return response.Attributes;
+}
+
+/**
  * Enable or disable download button
  */
 async function setDownloadEnabled(videoId, isEnabled) {
@@ -128,6 +147,7 @@ module.exports = {
   createVideo,
   getVideo,
   markAsDownloaded,
+  confirmUpload,
   setDownloadEnabled,
   deleteVideo,
   listAllVideos,

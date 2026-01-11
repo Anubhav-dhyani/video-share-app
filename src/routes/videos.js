@@ -65,14 +65,27 @@ router.post('/:videoId/confirm-upload', requireAdmin, async (req, res) => {
       return res.status(404).json({ error: 'Video not found' });
     }
 
-    // Verify file exists in S3
-    const exists = await s3Service.videoExists(video.s3_key);
+    // Verify file exists in S3 with retry (for multipart upload eventual consistency)
+    let exists = false;
+    let retries = 5;
+    while (retries > 0 && !exists) {
+      exists = await s3Service.videoExists(video.s3_key);
+      if (!exists) {
+        console.log(`File not found yet, retrying... (${retries} attempts left)`);
+        await new Promise(resolve => setTimeout(resolve, 1000)); // Wait 1 second
+        retries--;
+      }
+    }
+    
     if (!exists) {
       return res.status(400).json({ error: 'Video file not found in S3. Upload may have failed.' });
     }
 
     // Get actual file metadata from S3
     const metadata = await s3Service.getVideoMetadata(video.s3_key);
+    
+    // Update DynamoDB with upload confirmation
+    await dynamoService.confirmUpload(videoId, metadata.size);
 
     res.json({
       videoId,
