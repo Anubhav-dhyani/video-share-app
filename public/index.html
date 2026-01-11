@@ -881,10 +881,6 @@
             console.log(`🔄 Retrying part ${partNumber}... (${retries} attempts left)`);
             await new Promise(resolve => setTimeout(resolve, retryDelay));
           }
-            
-            // Wait before retry
-            await new Promise(resolve => setTimeout(resolve, 2000));
-          }
         }
       }
       
